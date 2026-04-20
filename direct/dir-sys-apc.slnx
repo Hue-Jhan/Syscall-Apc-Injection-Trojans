@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="dir-sys-apc.vcxproj" Id="5c1b5a8e-605d-45e7-8ef3-ace4cc933e1f" />
+</Solution>
