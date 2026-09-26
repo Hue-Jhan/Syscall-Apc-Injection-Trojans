@@ -13,10 +13,12 @@ Consists of 6 projects that have the same basic structure and share most of the 
 - Or we enumerate every thread of the process and queue to all of them.
 
 Next to each code as you can see i put the virus total detections for its raw executable.
- 
+
 ### 0) Direct & Indirect System Calls Explained
 
-On Windows, many native API functions inside ntdll.dll eventually execute a syscall that transitions execution from user mode to kernel mode. This code extracts the system service number (SSN) of some native api functions and puts it in their new unhooked structs. The ssn changes from a windows version to another, so it has to be resolved at runtime. Here is the struct the code looks for:
+On Windows, native API functions inside `ntdll.dll` ultimately execute a syscall instruction to transition from user mode to kernel mode. Because standard WinAPI wrappers and ntdll exports are heavily monitored by user-mode EDR hooks, this architecture bypasses them by dynamically resolving System Service Numbers (SSNs) at runtime:
+
+- **Unmodified Execution Flow:** This is not full ntdll unhooking; rather than rewriting functions, it bypasses user-mode prologue hooks (`jmp`) by constructing clean, custom execution stubs containing the target SSN (`mov eax, SSN`).
 
 ```asm
 mov r10, rcx
@@ -24,28 +26,24 @@ mov eax, 0x00001BE   ; SSN
 syscall
 ```
 
-Standard WinAPI wrappers and ntdll functions are frequently monitored or hooked by security solutions at user level, thats why we use the syscalls. Also this is not ntdll unhooking because we do not directly modify the function but simply bypass the hook placed at the beginning of the function (jmp ...). In the indirect syscall version the code also locates the "syscall" instruction inside that function and jumps to that after setting the SSN.
+- **Direct vs. Indirect Approach:** Direct syscalls execute the kernel transition directly from application space. Indirect syscalls locate a valid, unhooked native `syscall` instruction inside `ntdll.dll` and jump to it after setting the SSN, keeping instruction pointers aligned closer to expected operating system boundaries.
 
-In order to accomplish this the code does the following:
+ 
+To resolve native procedures without calling standard Windows APIs, I used `GetProcAddressManualEx()`—a custom function made by ChatGPT— ehm, *me*, that parses the PE headers and walks the export directory directly from memory. The breakdown of this process includes:
 
-- Creation of custom typedef structs for each function (+ internal structures and objects that they need);
-- Manual PE Parsing using a custom export directory traversal function (`GetProcAddressManualEx()`) to read DOS headers, locate NT headers, access the Data Directory, and map function names, ordinals, and RVAs directly from memory.
-- Parsing exported native functions to extract the unique System Service Number (`mov eax, SSN`) and constructs unhooked execution paths.
-- Execution of syscalls to transition to kernel mode directly from application space. Actually indirect syscalls locate the native `syscall` instruction within unhooked regions of `ntdll.dll` and jump to it after updating the SSN, keeping instruction pointers closer to expected boundaries.
-
-To get the RVA of each nt procedure (located in the export directory) i used ```GetProcAddressManualEx()```, a custom function made by chatgp- ehm i mean me, that parses the PE headers and walks the export directory instead of calling the Windows api. So the process looks like this: 
-
-- Read the __DOS header__ and use ```e_lfanew``` to get to nt headers;
-- At ```base + e_lfanew``` find the __NT headers__ (signature + IMAGE_FILE_HEADER + IMAGE_OPTIONAL_HEADER), the OptionalHeader contains the DataDirectory array.
-- __OptionalHeader.DataDirectory__[IMAGE_DIRECTORY_ENTRY_EXPORT] gives the RVA/size of the Export Directory, so ```base + rva``` goes to IMAGE_EXPORT_DIRECTORY in memory.
-- __Export Directory__ contains 3 lists: 
-  - AddressOfNames: array of RVAs to ASCII names, for example ```nameRvas[i] = "LoadLibraryA"```;
-  - AddressOfNameOrdinals: each index corresponds to a function name and tells you the ordinal for that name, ```ordinals[i] = index into AddressOfFunctions```;
-  - AddressOfFunctions: array of RVAs of the real exported functions, ```funcRvas[ordinal] = RVA of the actual function```.
+1. **DOS Header:** Read the DOS header and use `e_lfanew` to locate the NT headers.
+2. **NT Headers:** At `base + e_lfanew`, find the NT headers (signature + `IMAGE_FILE_HEADER` + `IMAGE_OPTIONAL_HEADER`). The optional header contains the DataDirectory array.
+3. **Export Directory RVA:** `OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]` provides the RVA and size of the Export Directory (`base + rva` points to the `IMAGE_EXPORT_DIRECTORY` in memory).
+4. **Directory Arrays:** The Export Directory contains three core lists:
+   * `AddressOfNames`: Array of RVAs to ASCII function names (e.g., `nameRvas[i] = "LoadLibraryA"`).
+   * `AddressOfNameOrdinals`: Array where each index corresponds to a function name and points to its ordinal (`ordinals[i] = index into AddressOfFunctions`).
+   * `AddressOfFunctions`: Array of RVAs pointing to the real exported functions (`funcRvas[ordinal] = RVA of the actual function`).
 
 So to resolve a name we find the name in the AddressOfNames array, get its ```ordinals[i]``` value (index), read ```funcRvas[ordinals[i]]```, and convert the function RVA to an absolute address by adding the module base: ```funct_add = base + funcRvas[ordinals[i]]```. 
 
-If funcRva points back inside the export directory region then the entry is a forwarded export, in this case and in other special cases like failing to validates the DOS header magic (MZ) and the PE signature, or if the RVA is too big, the function simply returns null.
+> [!NOTE]
+> If funcRva points back inside the export directory region then the entry is a forwarded export, in this case and in other special cases like failing to validates the DOS header magic (MZ) and the PE signature, or if the RVA is too big, the function simply returns null.
+
 
 
 ### 1) Syscall APC Process Injection <img align="right" src="media/dirsys-apc.png" width="400" />
@@ -56,7 +54,9 @@ If funcRva points back inside the export directory region then the entry is a fo
 3) Memory allocation, writing, and protection changes (RWX) are done inside the remote process using custom syscall-backed native routines;
 4) Target threads are enumerated, handles are retrieved via `NtOpenThread()`, and the payload is queued using native APC functions (`NtQueueApcThread`) to execute when threads enter an alertable state.
 
-### 2) DLL Version <img align="right" src="media/dirsys-apc-dll.png" width="280" />
+### 2) DLL Version 
+
+<img align="right" src="media/dirsys-apc-dll.png" width="380" />
 
 The DLL variant operates internally within the process it is loaded into, using `GetCurrentProcessId()` to target its host environment (no need to use syscalls as this function is commonly used in programs). 
 
