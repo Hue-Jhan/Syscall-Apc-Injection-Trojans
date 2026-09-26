@@ -29,7 +29,7 @@ syscall
 - **Direct vs. Indirect Approach:** Direct syscalls execute the kernel transition directly from application space. Indirect syscalls locate a valid, unhooked native `syscall` instruction inside `ntdll.dll` and jump to it after setting the SSN, keeping instruction pointers aligned closer to expected operating system boundaries.
 
  
-To resolve native procedures without calling standard Windows APIs, I used `GetProcAddressManualEx()`—a custom function made by ChatGPT— ehm, *me*, that parses the PE headers and walks the export directory directly from memory. The breakdown of this process includes:
+To resolve native procedures without calling standard Windows APIs, I used `GetProcAddressManualEx()`, a custom function made by ChatGPT- ehm, me, that parses the PE headers and walks the export directory directly from memory. The breakdown of this process includes:
 
 1. **DOS Header:** Read the DOS header and use `e_lfanew` to locate the NT headers.
 2. **NT Headers:** At `base + e_lfanew`, find the NT headers (signature + `IMAGE_FILE_HEADER` + `IMAGE_OPTIONAL_HEADER`). The optional header contains the DataDirectory array.
