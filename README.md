@@ -78,11 +78,12 @@ This dll injection method is not stealthy at all (because it uses loadlibrary) b
 
 <img align="right" src="media/indirsys-apc-reshack.png" width="380" />
 
-Executables typically bypass static signatures from Windows Defender and BitDefender, especially when metadata is aligned or wrapped using native utility signatures (e.g., `Mshta.exe` or custom MSI packages).
-
-Advanced behavioral engines (such as Bitdefender Advanced Thread Defense) will however flag abnormal call stacks or interrupt execution if stack pointers or return addresses do not cleanly align with standard `ntdll.dll` transitions.
+Typically bypasses static signatures form basically every AV, especially when metadata is aligned or wrapped using native utility signatures (e.g., `Mshta.exe` or custom MSI packages).
 
 
-<img align="right" src="media/indirsys-apc-dll-inj-reshack.png" width="380" />
+Hoewver it will still get blocked (not flagged though) because when the CPU hits that syscall instruction in ntdll.dll, the Kernel and Bitdefender's driver look at the Call Stack and can clearly see that the jmp doesn't push a return address correctly for an ntdll transition. Normally the return address on the stack should point to the instruction immediately after the syscall in ntdll.dll, but in this case the caller of the syscall was actually some random unsigned code in the .exe's memory space, and Bitdefender flags this as Stack Pivot or Abnormal System Call.
+<img align="right" src="media/indirsys-apc-dll-inj-reshack.png" width="440" />
+Because the code (non-system process) manually parses the PE Export Directory and scans ntdll.dll for 0xB8 (mov eax) and 0x0F 0x05 (syscall) opcodes, ATD triggers a Memory Scanning alert, which raises the "suspicious" level. Thats why (in my opinion) the flow is interrupted, blocked, but not flagged as malicious or notified to the user. 
+
 
 Modern kernel protections, event tracing (ETW), and technologies like Intel CET (Control-flow Enforcement Technology) monitor indirect branch tracking and shadow stacks, which means kernel-level logging remains the best solution against manual trampolining and non-standard execution flows.
