@@ -52,24 +52,22 @@ If funcRva points back inside the export directory region then the entry is a fo
 
 
 1) The encrypted payload is decrypted in memory;
-2) System processes are enumerated via `NtQuerySystemInformation()` to identify the target PID, then we obtain a handle using `NtOpenProcess()`; 
-<img align="right" src="media/indirsys-apc.png" width="400" />
+2) System processes are enumerated via `NtQuerySystemInformation()` to identify the target PID, then we obtain a handle using `NtOpenProcess()`; <img align="right" src="media/indirsys-apc.png" width="400" />
 3) Memory allocation, writing, and protection changes (RWX) are done inside the remote process using custom syscall-backed native routines;
 4) Target threads are enumerated, handles are retrieved via `NtOpenThread()`, and the payload is queued using native APC functions (`NtQueueApcThread`) to execute when threads enter an alertable state.
 
-### 2) DLL Version
-<img align="right" src="media/syscall-apc-dll.png" width="280" />
+### 2) DLL Version <img align="right" src="media/dirsys-apc-dll.png" width="280" />
 
 The DLL variant operates internally within the process it is loaded into, using `GetCurrentProcessId()` to target its host environment (no need to use syscalls as this function is commonly used in programs). 
 
 Also it spawns a new execution thread outside the loader lock to prevent deadlocks. Try to disable precompiled headers in Visual Studio build config to avoid compile errors.
 
 ### 3) DLL Injection via APC
-<img align="right" src="media/syscall-apc-dll-inj-shotgun.png" width="400" />
+<img align="right" src="media/indirsys-apc-dll-inj.png" width="400" />
 
 Extracts an embedded DLL resource, writes it to disk, and leverages `LoadLibraryA` queueing via APCs:
 1) Extracts resource data and computes path lengths and sizes;
-2) Resolves the target process and secures a handle;
+2) Resolves the target process and secures a handle; <img align="right" src="media/dirsys-apc-dll-inj-reshack.png" width="400" />
 3) Allocates space within the remote process, writes the absolute DLL path string, and marks the region RWX;
 4) Locates the base address of `kernel32.dll` to acquire the `LoadLibraryA` pointer;
 5) Queues `LoadLibraryA` with the path string base address to target thread queues, either to its first thread of the process or to all of them.
@@ -78,10 +76,13 @@ This dll injection method is not stealthy at all (because it uses loadlibrary) b
 
 # 🛡️ AV Detection
 
-<img align="right" src="media/syscall-reshack.png" width="380" />
+<img align="right" src="media/indirsys-apc-reshack.png" width="380" />
 
 Executables typically bypass static signatures from Windows Defender and BitDefender, especially when metadata is aligned or wrapped using native utility signatures (e.g., `Mshta.exe` or custom MSI packages).
 
 Advanced behavioral engines (such as Bitdefender Advanced Thread Defense) will however flag abnormal call stacks or interrupt execution if stack pointers or return addresses do not cleanly align with standard `ntdll.dll` transitions.
+
+
+<img align="right" src="media/indirsys-apc-dll-inj-reshack.png" width="380" />
 
 Modern kernel protections, event tracing (ETW), and technologies like Intel CET (Control-flow Enforcement Technology) monitor indirect branch tracking and shadow stacks, which means kernel-level logging remains the best solution against manual trampolining and non-standard execution flows.
